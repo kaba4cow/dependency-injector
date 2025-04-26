@@ -40,18 +40,21 @@ public class ApplicationContext {
 	 * Initializes the application context by reading the configuration file and scanning the specified package for components.
 	 *
 	 * @param basePackage the base package to scan for components
-	 * @param configFile  the configuration file path
+	 * @param configFile  the configuration file path or {@code null}
 	 * 
 	 * @throws Exception if an error occurs during initialization
 	 */
 	public ApplicationContext(String basePackage, String configFile) throws Exception {
-		log.info(String.format("Reading config file %s", configFile));
-		try {
-			config = ConfigLoaderFactory.getConfigLoader(configFile).loadConfig(configFile);
-		} catch (Exception exception) {
-			throw new RuntimeException("Could not read config", exception);
-		}
-		log.info("Config file read successfully");
+		if (Objects.nonNull(configFile)) {
+			log.info(String.format("Reading config file %s", configFile));
+			try {
+				config = ConfigLoaderFactory.getConfigLoader(configFile).loadConfig(configFile);
+			} catch (Exception exception) {
+				throw new RuntimeException("Could not read config", exception);
+			}
+			log.info("Config file read successfully");
+		} else
+			config = new HashMap<>();
 		components = new HashMap<>();
 		log.info(String.format("Scanning package %s for components", basePackage));
 		Set<Class<?>> types = ReflectionHelper.getTypes(basePackage, Component.class);
