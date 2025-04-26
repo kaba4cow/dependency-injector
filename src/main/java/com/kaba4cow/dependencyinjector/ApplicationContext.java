@@ -32,7 +32,7 @@ public class ApplicationContext {
 	private static final Logger log = LoggerFactory.getLogger("ApplicationContext");
 
 	private final Map<String, Object> config;
-	private final Map<Class<?>, ComponentSupplier> components;
+	private final Map<Class<?>, ComponentSupplier<?>> components;
 
 	private final TaskScheduler scheduler;
 
@@ -57,7 +57,7 @@ public class ApplicationContext {
 		Set<Class<?>> types = ReflectionHelper.getTypes(basePackage, Component.class);
 		log.info(String.format("Package scanned successfully, %s components retrieved", types.size()));
 		for (Class<?> type : types) {
-			components.put(type, new ComponentSupplier(type));
+			components.put(type, new ComponentSupplier<>(type));
 			log.info(String.format("Registered component of type %s", type.getName()));
 		}
 		scheduler = new TaskScheduler(this, types);
@@ -139,7 +139,7 @@ public class ApplicationContext {
 	 */
 	public void close() {
 		scheduler.shutdown();
-		for (ComponentSupplier component : components.values())
+		for (ComponentSupplier<?> component : components.values())
 			if (component.initialized())
 				try {
 					invokePreDestroy(component.get());
@@ -206,7 +206,7 @@ public class ApplicationContext {
 		return Optional.ofNullable(getConfigValue(type, key));
 	}
 
-	private <T> Object parseValue(Class<?> type, Object value) {
+	private Object parseValue(Class<?> type, Object value) {
 		if (Objects.isNull(value))
 			return null;
 		else if (type.isEnum()) {
@@ -231,23 +231,24 @@ public class ApplicationContext {
 		throw new IllegalArgumentException(String.format("Unsupported value type %s", type.getName()));
 	}
 
-	private class ComponentSupplier implements Supplier<Object> {
+	private class ComponentSupplier<T> implements Supplier<T> {
 
-		private final Class<?> type;
-		private Object instance;
+		private final Class<T> type;
+		private T instance;
 
-		private ComponentSupplier(Class<?> type) {
+		private ComponentSupplier(Class<T> type) {
 			this.type = type;
 			this.instance = null;
 		}
 
+		@SuppressWarnings("unchecked")
 		@Override
-		public Object get() {
+		public T get() {
 			if (!initialized())
 				try {
 					Constructor<?> constructor = getConstructor(type);
 					log.info(String.format("Creating component of type %s", type.getName()));
-					instance = constructor.newInstance(injectDependencies(constructor.getParameters()));
+					instance = (T) constructor.newInstance(injectDependencies(constructor.getParameters()));
 					log.info(String.format("Component of type %s initialized successfully", type.getName()));
 					injectFields(instance);
 					invokePostConstruct(instance);
@@ -258,7 +259,7 @@ public class ApplicationContext {
 			return instance;
 		}
 
-		public boolean initialized() {
+		private boolean initialized() {
 			return Objects.nonNull(instance);
 		}
 

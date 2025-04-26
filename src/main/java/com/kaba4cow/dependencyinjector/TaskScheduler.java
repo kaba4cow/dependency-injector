@@ -13,7 +13,7 @@ class TaskScheduler {
 
 	private final ScheduledExecutorService scheduler;
 
-	public TaskScheduler(ApplicationContext context, Set<Class<?>> types) {
+	TaskScheduler(ApplicationContext context, Set<Class<?>> types) {
 		scheduler = Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
 		for (Class<?> type : types)
 			if (!type.isAnnotationPresent(Lazy.class) || !ReflectionHelper.getMethods(type, Scheduled.class).isEmpty()) {
@@ -32,7 +32,7 @@ class TaskScheduler {
 			}
 	}
 
-	public void shutdown() {
+	void shutdown() {
 		scheduler.shutdown();
 		try {
 			if (!scheduler.awaitTermination(1L, TimeUnit.SECONDS))
@@ -48,7 +48,7 @@ class TaskScheduler {
 		private final Object component;
 		private final Method method;
 
-		public Task(Object component, Method method) {
+		private Task(Object component, Method method) {
 			this.component = component;
 			this.method = method;
 		}

@@ -4,10 +4,9 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.kaba4cow</groupId>
 	<artifactId>dependency-injector</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1</version>
 	<name>Dependency Injector</name>
 	<description>A lightweight dependency injection framework for Java.</description>
-	<packaging>jar</packaging>
 	<properties>
 		<maven.compiler.source>8</maven.compiler.source>
 		<maven.compiler.target>8</maven.compiler.target>
