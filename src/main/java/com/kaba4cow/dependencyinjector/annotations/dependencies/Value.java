@@ -10,8 +10,24 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * This annotation is used to inject configuration values into fields in components. The value to inject is specified by the
- * `value` attribute.
+ * Injects a configuration value from either:
+ * <ul>
+ * <li>a configuration file</li>
+ * <li>a {@link Value}-annotated method inside a {@link Configuration} class</li>
+ * </ul>
+ * into a field, parameter, or method.
+ * <p>
+ * Can be used on:
+ * <ul>
+ * <li>Fields — to inject a value directly into a component or bean</li>
+ * <li>Parameters — for constructors, methods, or {@link Bean} methods</li>
+ * <li>Methods in {@code @Configuration} classes — to define named values programmatically</li>
+ * </ul>
+ * </p>
+ * <p>
+ * The {@code value} attribute specifies the key to look up. If the key is present in both file and config-class sources, the
+ * config-class value has priority.
+ * </p>
  */
 @Documented
 @Retention(RUNTIME)

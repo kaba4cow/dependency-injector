@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import com.kaba4cow.dependencyinjector.annotations.component.Component;
 import com.kaba4cow.dependencyinjector.annotations.component.PostConstruct;
 import com.kaba4cow.dependencyinjector.annotations.component.PreDestroy;
+import com.kaba4cow.dependencyinjector.annotations.dependencies.Bean;
+import com.kaba4cow.dependencyinjector.annotations.dependencies.Configuration;
 import com.kaba4cow.dependencyinjector.annotations.dependencies.Inject;
 import com.kaba4cow.dependencyinjector.annotations.dependencies.Value;
 import com.kaba4cow.dependencyinjector.configtools.ConfigLoaderFactory;
@@ -31,7 +33,8 @@ public class ApplicationContext {
 
 	private static final Logger log = LoggerFactory.getLogger("ApplicationContext");
 
-	private final Map<String, Object> config;
+	private final Map<String, Object> fileConfig;
+	private final Map<String, Object> classConfig;
 	private final Map<Class<?>, ComponentSupplier<?>> components;
 
 	private final TaskScheduler scheduler;
@@ -48,23 +51,58 @@ public class ApplicationContext {
 		if (Objects.nonNull(configFile)) {
 			log.info(String.format("Reading config file %s", configFile));
 			try {
-				config = ConfigLoaderFactory.getConfigLoader(configFile).loadConfig(configFile);
+				fileConfig = ConfigLoaderFactory.getConfigLoader(configFile).loadConfig(configFile);
 			} catch (Exception exception) {
 				throw new RuntimeException("Could not read config", exception);
 			}
 			log.info("Config file read successfully");
 		} else
-			config = new HashMap<>();
+			fileConfig = new HashMap<>();
+		classConfig = new HashMap<>();
 		components = new HashMap<>();
-		log.info(String.format("Scanning package %s for components", basePackage));
-		Set<Class<?>> types = ReflectionHelper.getTypes(basePackage, Component.class);
-		log.info(String.format("Package scanned successfully, %s components retrieved", types.size()));
-		for (Class<?> type : types) {
-			components.put(type, new ComponentSupplier<>(type));
-			log.info(String.format("Registered component of type %s", type.getName()));
+		log.info(String.format("Scanning package %s for configuration classes", basePackage));
+		Set<Class<?>> configClasses = ReflectionHelper.getTypes(basePackage, Configuration.class);
+		log.info(String.format("Package scanned successfully, %s configuration classes retrieved", configClasses.size()));
+		for (Class<?> configClass : configClasses) {
+			Object configInstance = configClass.getConstructor().newInstance();
+			for (Method method : configClass.getDeclaredMethods())
+				if (method.isAnnotationPresent(Bean.class)) {
+					method.setAccessible(true);
+					Class<?> beanClass = method.getReturnType();
+					Object bean = method.invoke(configInstance, injectDependencies(method.getParameters()));
+					if (!components.containsKey(beanClass))
+						components.put(beanClass, new ComponentSupplier<>(bean));
+					else
+						throw new RuntimeException(String.format("Bean of type %s already exists", beanClass.getName()));
+					log.info(String.format("Registered bean of type %s from config class %s", beanClass.getName(),
+							configClass.getName()));
+				} else if (method.isAnnotationPresent(Value.class)) {
+					method.setAccessible(true);
+					String key = method.getAnnotation(Value.class).value();
+					Object value = method.invoke(configInstance);
+					classConfig.put(key, value);
+				}
 		}
-		scheduler = new TaskScheduler(this, types);
+		log.info(String.format("Scanning package %s for component classes", basePackage));
+		Set<Class<?>> componentClasses = ReflectionHelper.getTypes(basePackage, Component.class);
+		log.info(String.format("Package scanned successfully, %s component classes retrieved", componentClasses.size()));
+		for (Class<?> componentClass : componentClasses) {
+			components.put(componentClass, new ComponentSupplier<>(componentClass));
+			log.info(String.format("Registered component of type %s", componentClass.getName()));
+		}
+		scheduler = new TaskScheduler(this, componentClasses);
 		Runtime.getRuntime().addShutdownHook(new Thread(this::close, "ApplicationContextShutdownHook"));
+	}
+
+	/**
+	 * Initializes the application context by scanning the specified package for components.
+	 *
+	 * @param basePackage the base package to scan for components
+	 * 
+	 * @throws Exception if an error occurs during initialization
+	 */
+	public ApplicationContext(String basePackage) throws Exception {
+		this(basePackage, null);
 	}
 
 	private Constructor<?> getConstructor(Class<?> type) throws Exception {
@@ -87,7 +125,7 @@ public class ApplicationContext {
 	private void invokePostConstruct(Object component) {
 		Class<?> type = component.getClass();
 		Map<String, Method> invoked = new ConcurrentHashMap<>();
-		while (type != null) {
+		while (Objects.nonNull(type)) {
 			for (Method method : ReflectionHelper.getMethods(type, PostConstruct.class)) {
 				String signature = method.getName() + Arrays.toString(method.getParameterTypes());
 				if (!invoked.containsKey(signature))
@@ -108,7 +146,7 @@ public class ApplicationContext {
 	private void invokePreDestroy(Object component) {
 		Class<?> type = component.getClass();
 		Map<String, Method> invoked = new ConcurrentHashMap<>();
-		while (type != null) {
+		while (Objects.nonNull(type)) {
 			for (Method method : ReflectionHelper.getMethods(type, PreDestroy.class)) {
 				String signature = method.getName() + Arrays.toString(method.getParameterTypes());
 				if (!invoked.containsKey(signature))
@@ -149,7 +187,8 @@ public class ApplicationContext {
 				} catch (Exception exception) {
 					exception.printStackTrace();
 				}
-		config.clear();
+		fileConfig.clear();
+		classConfig.clear();
 		components.clear();
 	}
 
@@ -163,11 +202,10 @@ public class ApplicationContext {
 	 * 
 	 * @throws RuntimeException if no component of the specified type is found
 	 */
-	@SuppressWarnings("unchecked")
 	public <T> T getComponent(Class<T> type) {
 		if (!components.containsKey(type))
 			throw new RuntimeException(String.format("Found no component of type %s", type.getName()));
-		return (T) components.get(type).get();
+		return type.cast(components.get(type).get());
 	}
 
 	/**
@@ -191,9 +229,8 @@ public class ApplicationContext {
 	 * 
 	 * @return the configuration value
 	 */
-	@SuppressWarnings("unchecked")
 	public <T> T getConfigValue(Class<T> type, String key) {
-		return (T) parseValue(type, config.get(key));
+		return type.cast(classConfig.containsKey(key) ? classConfig.get(key) : parseValue(type, fileConfig.get(key)));
 	}
 
 	/**
@@ -242,6 +279,12 @@ public class ApplicationContext {
 		private ComponentSupplier(Class<T> type) {
 			this.type = type;
 			this.instance = null;
+		}
+
+		@SuppressWarnings("unchecked")
+		private ComponentSupplier(T instance) {
+			this.type = (Class<T>) Objects.requireNonNull(instance).getClass();
+			this.instance = instance;
 		}
 
 		@SuppressWarnings("unchecked")

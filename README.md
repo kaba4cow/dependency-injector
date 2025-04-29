@@ -6,11 +6,37 @@ A lightweight dependency injection framework for **Java** applications with supp
 
 - Dependency injection via constructor and field injection
 - Component lifecycle management with `@PostConstruct` and `@PreDestroy` hooks
-- Configuration value injection
-- Task scheduling with configurable delays
+- Configuration value injection from files and programmable sources
+- Task scheduling with configurable delays and time units
 - Lazy component initialization
 - Automatic component scanning and registration
 - Support for various configuration formats
+- Bean definition through `@Configuration` classes
+- Hierarchical component initialization with inheritance support
+
+## Installation
+
+Clone and build:
+
+```bash
+git clone https://github.com/kaba4cow/dependency-injector.git
+cd dependency-injector
+mvn clean install
+```
+
+Add to your `pom.xml`:
+
+```
+xml<dependency>
+    <groupId>com.kaba4cow</groupId>
+    <artifactId>dependency-injector</artifactId>
+    <version>1.1.0</version>
+</dependency>
+```
+
+Requirements: 
+
+- **Java** version **8** or higher.
 
 ## Quick Start
 
@@ -58,24 +84,71 @@ public class Application {
     public static void main(String[] args) {
         ApplicationContext context = new ApplicationContext("com.example", "config.yml");
         UserService userService = context.getComponent(UserService.class);
+        
+        // Or without a config file
+        // ApplicationContext context = new ApplicationContext("com.example");
     }
 }
 ```
 
 ## Core Annotations
 
-### @Component
+### Component Annotations
+
+#### @Component
 
 Marks a class as a managed component:
 
-```
+```java
 @Component
 public class MyService {
     // Component implementation
 }
 ```
 
-### @Inject
+#### @Lazy
+
+Enables lazy initialization of components:
+
+```java
+@Component
+@Lazy
+public class ExpensiveService {
+    // This component will only be initialized when first requested
+}
+```
+
+#### @PostConstruct
+
+Marks methods to be executed after dependency injection is complete:
+
+```java
+@Component
+public class MyService {
+    @PostConstruct
+    public void initialize() {
+        // Initialization logic
+    }
+}
+```
+
+#### @PreDestroy
+
+Marks methods to be executed before the component is destroyed:
+
+```java
+@Component
+public class MyService {
+    @PreDestroy
+    public void cleanup() {
+        // Cleanup logic
+    }
+}
+```
+
+### Dependency Annotations
+
+#### @Inject
 
 Injects dependencies through constructors or fields:
 
@@ -93,7 +166,7 @@ public class UserService {
 }
 ```
 
-### @Value
+#### @Value
 
 Injects configuration values:
 
@@ -108,19 +181,48 @@ public class ConfigurationService {
 }
 ```
 
-### @Lazy
+#### @Configuration
 
-Enables lazy initialization of components:
+Marks a class as a configuration provider:
 
 ```java
-@Component
-@Lazy
-public class ExpensiveService {
-    // This component will only be initialized when first requested
+@Configuration
+public class AppConfig {
+    @Bean
+    public DataSource dataSource(@Value("database.url") String url, 
+                               @Value("database.username") String username,
+                               @Value("database.password") String password) {
+        DataSource ds = new SimpleDataSource();
+        ds.setUrl(url);
+        ds.setUsername(username);
+        ds.setPassword(password);
+        return ds;
+    }
+    
+    @Value("app.max-threads")
+    public int maxThreads() {
+        return Runtime.getRuntime().availableProcessors() * 2;
+    }
 }
 ```
 
-### @Scheduled
+#### @Bean
+
+Marks a method in a `@Configuration` class as a bean factory:
+
+```java
+@Configuration
+public class AppConfig {
+    @Bean
+    public EmailService emailService() {
+        return new SMTPEmailService();
+    }
+}
+```
+
+### Scheduler Annotations
+
+#### @Scheduled
 
 Schedules periodic task execution:
 
@@ -138,9 +240,9 @@ public class ScheduledTasks {
 
 1. **Construction**: Components are instantiated using either the default constructor or an `@Inject` annotated constructor
 2. **Dependency Injection**: Field-level dependencies are injected
-3. **Post-Construction**: `@PostConstruct` methods are called
+3. **Post-Construction**: `@PostConstruct` methods are called (respecting inheritance hierarchy)
 4. **Usage**: Component is ready for use
-5. **Pre-Destruction**: `@PreDestroy` methods are called during context shutdown
+5. **Pre-Destruction**: `@PreDestroy` methods are called during context shutdown (respecting inheritance hierarchy)
 
 ## Configuration Support
 
@@ -150,12 +252,20 @@ The framework supports various configuration formats through the `ConfigLoaderFa
 - `JSON`
 - `YAML`
 
-Configuration values can be injected using the `@Value` annotation and support the following types:
+Configuration values can be provided from two sources:
+
+1. External configuration files loaded at startup
+2. `@Value`-annotated methods in `@Configuration` classes
+
+When the same key exists in both sources, the value from `@Configuration` classes takes precedence.
+
+Configuration values support the following types:
 
 - Primitive types: `int`, `long`, `float`, `double`, `boolean`
+- Wrapper types: `Integer`, `Long`, `Float`, `Double`, `Boolean`
 - `String`
 - `List`
-- `enum`
+- `enum` types (using string representation)
 
 ## Task Scheduling
 
@@ -163,15 +273,34 @@ The framework includes a built-in task scheduler that supports:
 
 - Fixed-delay execution
 - Configurable initial delays
-- Custom time units
+- Custom time units (seconds, minutes, hours, etc.)
+- Automatic thread pool sizing based on available processors
 
-## Best Practices
+## API Reference
 
-1. **Constructor Injection**: Prefer constructor injection over field injection for required dependencies
-2. **Lifecycle Methods**: Use `@PostConstruct` for initialization logic and `@PreDestroy` for cleanup
-3. **Configuration**: Keep configuration values in external config files
-4. **Component Scanning**: Organize components in a clear package structure
-5. **Lazy Loading**: Use `@Lazy` for components that are expensive to create and not always needed
+### ApplicationContext
+
+The main entry point for application configuration:
+
+```java
+// Create with configuration file
+ApplicationContext context = new ApplicationContext("com.example", "config.yml");
+
+// Get a component
+MyService service = context.getComponent(MyService.class);
+
+// Get a component (optional)
+Optional<MyService> service = context.optComponent(MyService.class);
+
+// Get configuration value
+String value = context.getConfigValue(String.class, "some.key");
+
+// Get configuration value (optional)
+Optional<String> value = context.optConfigValue(String.class, "some.key");
+
+// Properly close the context (automatically registered as shutdown hook)
+context.close();
+```
 
 ## Error Handling
 
@@ -181,3 +310,9 @@ The framework includes error handling for common scenarios:
 - Configuration errors
 - Lifecycle method exceptions
 - Scheduling errors
+- Bean creation failures
+- Duplicate bean definitions
+
+## License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
